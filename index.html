@@ -11,6 +11,7 @@
             --text-color: #f8fafc;
             --danger-color: #f43f5e;
             --accent-color: #22c55e;
+            --bullet-color: #64748b; /* 鐵灰色 */
         }
 
         body {
@@ -76,7 +77,6 @@
             font-size: 20px;
         }
 
-        /* 音量控制 UI */
         #volume-control {
             position: absolute;
             top: 100px;
@@ -159,7 +159,6 @@
         </div>
     </div>
 
-    <!-- 音量調節元件 -->
     <div id="volume-control">
         <span id="volume-icon">🔊</span>
         <input type="range" id="volume-slider" min="0" max="1" step="0.1" value="0.5">
@@ -174,32 +173,41 @@
 
 <script>
     // --- 音效引擎 ---
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    let globalVolume = 0.5; // 預設音量
-    let bgmNode = null;
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    let audioCtx = null;
+    let globalVolume = 0.5;
     let bgmGainNode = null;
+    let bgmOscillators = [];
 
-    // 監聽音量滑動條
+    // 強制初始化並恢復音訊
+    async function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new AudioContext();
+        }
+        if (audioCtx.state === 'suspended') {
+            await audioCtx.resume();
+        }
+    }
+
     const volumeSlider = document.getElementById('volume-slider');
     const volumeIcon = document.getElementById('volume-icon');
     volumeSlider.addEventListener('input', (e) => {
         globalVolume = parseFloat(e.target.value);
         volumeIcon.innerText = globalVolume === 0 ? "🔇" : globalVolume < 0.5 ? "🔉" : "🔊";
         
-        // 即時調整背景音樂音量
-        if (bgmGainNode) {
-            bgmGainNode.gain.setTargetAtTime(globalVolume * 0.15, audioCtx.currentTime, 0.1);
+        if (bgmGainNode && audioCtx) {
+            bgmGainNode.gain.setTargetAtTime(globalVolume * 0.2, audioCtx.currentTime, 0.1);
         }
     });
 
     function playTone(freq, type, duration, volume = 0.1) {
-        if (audioCtx.state === 'suspended') audioCtx.resume();
+        if (!audioCtx || audioCtx.state === 'suspended') return;
+
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = type;
         osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
         
-        // 最終音量 = 基礎音量 * 全域設定
         const finalVolume = volume * globalVolume;
         gain.gain.setValueAtTime(finalVolume, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
@@ -210,16 +218,14 @@
         osc.stop(audioCtx.currentTime + duration);
     }
 
-    // 啟動背景音樂
     function startBGM() {
-        if (bgmNode) return;
-        if (audioCtx.state === 'suspended') audioCtx.resume();
+        // 確保在開始按鈕點擊時啟動
+        if (bgmOscillators.length > 0) return;
 
         bgmGainNode = audioCtx.createGain();
-        bgmGainNode.gain.setValueAtTime(globalVolume * 0.15, audioCtx.currentTime);
+        bgmGainNode.gain.setValueAtTime(globalVolume * 0.2, audioCtx.currentTime);
         bgmGainNode.connect(audioCtx.destination);
 
-        // 建立一個簡單的環境背景音 (低頻方波與正弦波混合)
         const createOsc = (freq, type) => {
             const osc = audioCtx.createOscillator();
             osc.type = type;
@@ -229,26 +235,27 @@
             return osc;
         };
 
-        bgmNode = [
-            createOsc(110, 'sine'), // A2
-            createOsc(164.81, 'triangle') // E3
+        // 背景氛圍音 (A1, E2)
+        bgmOscillators = [
+            createOsc(55, 'sine'),
+            createOsc(82.41, 'triangle')
         ];
     }
 
     const sounds = {
-        hit: () => playTone(150, 'sawtooth', 0.3, 1.0),
+        hit: () => playTone(120, 'sawtooth', 0.3, 0.6),
         collect: () => { 
-            playTone(523, 'sine', 0.1, 0.8); 
-            setTimeout(()=>playTone(783, 'sine', 0.2, 0.8), 100); 
+            playTone(523, 'sine', 0.1, 0.4); 
+            setTimeout(()=>playTone(783, 'sine', 0.2, 0.4), 100); 
         },
         levelup: () => { 
-            playTone(440, 'square', 0.1, 0.5); 
-            setTimeout(()=>playTone(659, 'square', 0.3, 0.5), 200); 
+            playTone(440, 'square', 0.1, 0.3); 
+            setTimeout(()=>playTone(659, 'square', 0.3, 0.3), 200); 
         },
-        gameover: () => playTone(100, 'sawtooth', 0.8, 1.0)
+        gameover: () => playTone(80, 'sawtooth', 1.0, 0.8)
     };
 
-    // --- 遊戲常數與狀態 ---
+    // --- 遊戲邏輯 ---
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const scoreElement = document.getElementById('score');
@@ -269,7 +276,7 @@
 
     const TYPES = {
         NORMAL: { name: "經典火球", color: "#f97316", behavior: "linear" },
-        BULLET: { name: "高速子彈", color: "#f43f5e", behavior: "straight" },
+        BULLET: { name: "高速子彈", color: "#64748b", behavior: "straight" }, // 鐵灰色
         ICE: { name: "冰爆凝結", color: "#38bdf8", behavior: "pause_go" },
         TORNADO: { name: "幻影旋風", color: "#a855f7", behavior: "sin_wave" },
         GHOST: { name: "幽靈閃爍", color: "#cbd5e1", behavior: "jitter" },
@@ -298,11 +305,10 @@
     resize();
     highScoreElement.innerText = `最高: ${highScore}`;
 
-    // --- 事件監聽 ---
     function handleStart(e) {
         if (gameState !== 'PLAYING') return;
         if (e.target.closest('#volume-control')) return;
-        
+        initAudio();
         const t = e.touches ? e.touches[0] : e;
         lastTouchX = t.clientX; lastTouchY = t.clientY;
         isTouching = true;
@@ -324,8 +330,9 @@
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', () => isTouching = false);
 
-    startBtn.addEventListener('click', () => {
-        startBGM(); // 開始背景音樂
+    startBtn.addEventListener('click', async () => {
+        await initAudio(); // 異步初始化音訊
+        startBGM(); // 啟動背景音
         resetGame();
         gameState = 'PLAYING';
         menu.style.display = 'none';
@@ -480,7 +487,6 @@
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // 玩家繪製
         ctx.save();
         ctx.translate(player.x, player.y);
         if (player.invincibleTimer > 0 && Math.floor(performance.now()/80)%2) ctx.globalAlpha = 0.3;
@@ -496,7 +502,6 @@
         ctx.beginPath(); ctx.moveTo(0, 10 * s); ctx.lineTo(8 * s, 22 * s - legSwing); ctx.stroke(); 
         ctx.restore();
 
-        // 敵人繪製
         enemies.forEach(e => {
             ctx.save();
             ctx.translate(e.x + e.size/2, e.y + e.size/2);
@@ -507,11 +512,11 @@
                 ctx.rotate(Math.PI); 
                 const fireY = r * 1.5 + Math.random() * 10;
                 const gradFire = ctx.createLinearGradient(0, 0, 0, fireY);
-                gradFire.addColorStop(0, "#f43f5e");
+                gradFire.addColorStop(0, "#475569"); // 鐵灰深
                 gradFire.addColorStop(1, "transparent");
                 ctx.fillStyle = gradFire;
                 ctx.beginPath(); ctx.moveTo(-r*0.6, r); ctx.lineTo(0, fireY); ctx.lineTo(r*0.6, r); ctx.fill();
-                ctx.fillStyle = "#f43f5e";
+                ctx.fillStyle = e.type.color;
                 ctx.beginPath();
                 ctx.moveTo(0, -r * 1.8);
                 ctx.quadraticCurveTo(r, -r, r, r);
