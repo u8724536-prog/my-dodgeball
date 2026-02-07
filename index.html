@@ -177,9 +177,8 @@
     let audioCtx = null;
     let globalVolume = 0.5;
     let bgmGainNode = null;
-    let bgmOscillators = [];
+    let bgmTimer = null;
 
-    // 強制初始化並恢復音訊
     async function initAudio() {
         if (!audioCtx) {
             audioCtx = new AudioContext();
@@ -196,50 +195,57 @@
         volumeIcon.innerText = globalVolume === 0 ? "🔇" : globalVolume < 0.5 ? "🔉" : "🔊";
         
         if (bgmGainNode && audioCtx) {
-            bgmGainNode.gain.setTargetAtTime(globalVolume * 0.2, audioCtx.currentTime, 0.1);
+            bgmGainNode.gain.setTargetAtTime(globalVolume * 0.15, audioCtx.currentTime, 0.1);
         }
     });
 
     function playTone(freq, type, duration, volume = 0.1) {
         if (!audioCtx || audioCtx.state === 'suspended') return;
-
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = type;
         osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        
         const finalVolume = volume * globalVolume;
         gain.gain.setValueAtTime(finalVolume, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
-        
         osc.connect(gain);
         gain.connect(audioCtx.destination);
         osc.start();
         osc.stop(audioCtx.currentTime + duration);
     }
 
+    // 趣味背景音樂循環
     function startBGM() {
-        // 確保在開始按鈕點擊時啟動
-        if (bgmOscillators.length > 0) return;
+        if (bgmTimer) return;
 
         bgmGainNode = audioCtx.createGain();
-        bgmGainNode.gain.setValueAtTime(globalVolume * 0.2, audioCtx.currentTime);
+        bgmGainNode.gain.setValueAtTime(globalVolume * 0.15, audioCtx.currentTime);
         bgmGainNode.connect(audioCtx.destination);
 
-        const createOsc = (freq, type) => {
-            const osc = audioCtx.createOscillator();
-            osc.type = type;
-            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-            osc.connect(bgmGainNode);
-            osc.start();
-            return osc;
-        };
+        const melody = [261.63, 329.63, 392.00, 523.25, 392.00, 329.63]; // C4, E4, G4, C5...
+        let step = 0;
 
-        // 背景氛圍音 (A1, E2)
-        bgmOscillators = [
-            createOsc(55, 'sine'),
-            createOsc(82.41, 'triangle')
-        ];
+        function playStep() {
+            if (gameState !== 'PLAYING') return;
+            const osc = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(melody[step % melody.length], audioCtx.currentTime);
+            g.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+            osc.connect(g);
+            g.connect(bgmGainNode);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.4);
+            step++;
+            bgmTimer = setTimeout(playStep, 400);
+        }
+        playStep();
+    }
+
+    function stopBGM() {
+        clearTimeout(bgmTimer);
+        bgmTimer = null;
     }
 
     const sounds = {
@@ -249,8 +255,8 @@
             setTimeout(()=>playTone(783, 'sine', 0.2, 0.4), 100); 
         },
         levelup: () => { 
-            playTone(440, 'square', 0.1, 0.3); 
-            setTimeout(()=>playTone(659, 'square', 0.3, 0.3), 200); 
+            playTone(587, 'square', 0.1, 0.3); 
+            setTimeout(()=>playTone(880, 'square', 0.3, 0.3), 150); 
         },
         gameover: () => playTone(80, 'sawtooth', 1.0, 0.8)
     };
@@ -276,7 +282,7 @@
 
     const TYPES = {
         NORMAL: { name: "經典火球", color: "#f97316", behavior: "linear" },
-        BULLET: { name: "高速子彈", color: "#64748b", behavior: "straight" }, // 鐵灰色
+        BULLET: { name: "高速子彈", color: "#64748b", behavior: "straight" }, 
         ICE: { name: "冰爆凝結", color: "#38bdf8", behavior: "pause_go" },
         TORNADO: { name: "幻影旋風", color: "#a855f7", behavior: "sin_wave" },
         GHOST: { name: "幽靈閃爍", color: "#cbd5e1", behavior: "jitter" },
@@ -331,10 +337,10 @@
     window.addEventListener('mouseup', () => isTouching = false);
 
     startBtn.addEventListener('click', async () => {
-        await initAudio(); // 異步初始化音訊
-        startBGM(); // 啟動背景音
+        await initAudio();
         resetGame();
         gameState = 'PLAYING';
+        startBGM();
         menu.style.display = 'none';
         lastTime = performance.now();
         requestAnimationFrame(gameLoop);
@@ -361,6 +367,7 @@
         else if (rand < 0.10) type = TYPES.BUFF;
         else {
             const pool = [TYPES.NORMAL];
+            // 修正關卡判定：第 2 關出現子彈，第 4 關冰球...
             if (currentLevel >= 2) pool.push(TYPES.BULLET);
             if (currentLevel >= 4) pool.push(TYPES.ICE);
             if (currentLevel >= 6) pool.push(TYPES.TORNADO);
@@ -472,6 +479,7 @@
 
     function gameOver() {
         gameState = 'GAMEOVER';
+        stopBGM();
         sounds.gameover();
         document.getElementById('menu-title').innerText = "挑戰失敗";
         document.getElementById('menu-desc').innerHTML = `得分: <span style="color:#f43f5e">${score}</span><br>你在第 ${currentLevel} 關倒下了`;
@@ -511,12 +519,15 @@
             if (e.type === TYPES.BULLET) {
                 ctx.rotate(Math.PI); 
                 const fireY = r * 1.5 + Math.random() * 10;
+                // 鐵灰色子彈火焰
                 const gradFire = ctx.createLinearGradient(0, 0, 0, fireY);
-                gradFire.addColorStop(0, "#475569"); // 鐵灰深
+                gradFire.addColorStop(0, "#475569"); 
                 gradFire.addColorStop(1, "transparent");
                 ctx.fillStyle = gradFire;
                 ctx.beginPath(); ctx.moveTo(-r*0.6, r); ctx.lineTo(0, fireY); ctx.lineTo(r*0.6, r); ctx.fill();
-                ctx.fillStyle = e.type.color;
+                
+                // 鐵灰色本體
+                ctx.fillStyle = "#64748b";
                 ctx.beginPath();
                 ctx.moveTo(0, -r * 1.8);
                 ctx.quadraticCurveTo(r, -r, r, r);
@@ -576,7 +587,13 @@
             ctx.save();
             ctx.fillStyle = "rgba(34, 197, 94, "+ Math.min(1, levelUpMsgTimer/500) +")";
             ctx.font = "bold 24px Arial"; ctx.textAlign = "center";
-            ctx.fillText(`解鎖新球種：${TYPES[Object.keys(TYPES)[(currentLevel-1)%5]].name}`, canvas.width/2, canvas.height/2);
+            // 修正顯示當前解鎖的球種名稱邏輯
+            let unlockedName = "新挑戰";
+            if (currentLevel == 2) unlockedName = TYPES.BULLET.name;
+            else if (currentLevel == 4) unlockedName = TYPES.ICE.name;
+            else if (currentLevel == 6) unlockedName = TYPES.TORNADO.name;
+            else if (currentLevel == 8) unlockedName = TYPES.GHOST.name;
+            ctx.fillText(`解鎖新球種：${unlockedName}`, canvas.width/2, canvas.height/2);
             ctx.restore();
         }
     }
