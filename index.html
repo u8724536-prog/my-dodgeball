@@ -176,6 +176,8 @@
     // --- 音效引擎 ---
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     let globalVolume = 0.5; // 預設音量
+    let bgmNode = null;
+    let bgmGainNode = null;
 
     // 監聽音量滑動條
     const volumeSlider = document.getElementById('volume-slider');
@@ -183,6 +185,11 @@
     volumeSlider.addEventListener('input', (e) => {
         globalVolume = parseFloat(e.target.value);
         volumeIcon.innerText = globalVolume === 0 ? "🔇" : globalVolume < 0.5 ? "🔉" : "🔊";
+        
+        // 即時調整背景音樂音量
+        if (bgmGainNode) {
+            bgmGainNode.gain.setTargetAtTime(globalVolume * 0.15, audioCtx.currentTime, 0.1);
+        }
     });
 
     function playTone(freq, type, duration, volume = 0.1) {
@@ -203,8 +210,33 @@
         osc.stop(audioCtx.currentTime + duration);
     }
 
+    // 啟動背景音樂
+    function startBGM() {
+        if (bgmNode) return;
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
+        bgmGainNode = audioCtx.createGain();
+        bgmGainNode.gain.setValueAtTime(globalVolume * 0.15, audioCtx.currentTime);
+        bgmGainNode.connect(audioCtx.destination);
+
+        // 建立一個簡單的環境背景音 (低頻方波與正弦波混合)
+        const createOsc = (freq, type) => {
+            const osc = audioCtx.createOscillator();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            osc.connect(bgmGainNode);
+            osc.start();
+            return osc;
+        };
+
+        bgmNode = [
+            createOsc(110, 'sine'), // A2
+            createOsc(164.81, 'triangle') // E3
+        ];
+    }
+
     const sounds = {
-        hit: () => playTone(150, 'sawtooth', 0.3, 1.0), // 提高基準值以便調節
+        hit: () => playTone(150, 'sawtooth', 0.3, 1.0),
         collect: () => { 
             playTone(523, 'sine', 0.1, 0.8); 
             setTimeout(()=>playTone(783, 'sine', 0.2, 0.8), 100); 
@@ -213,7 +245,7 @@
             playTone(440, 'square', 0.1, 0.5); 
             setTimeout(()=>playTone(659, 'square', 0.3, 0.5), 200); 
         },
-        gameover: () => playTone(200, 'sawtooth', 0.5, 1.0)
+        gameover: () => playTone(100, 'sawtooth', 0.8, 1.0)
     };
 
     // --- 遊戲常數與狀態 ---
@@ -269,7 +301,6 @@
     // --- 事件監聽 ---
     function handleStart(e) {
         if (gameState !== 'PLAYING') return;
-        // 如果點擊的是音量控制區，不觸發玩家移動
         if (e.target.closest('#volume-control')) return;
         
         const t = e.touches ? e.touches[0] : e;
@@ -294,7 +325,7 @@
     window.addEventListener('mouseup', () => isTouching = false);
 
     startBtn.addEventListener('click', () => {
-        if (audioCtx.state === 'suspended') audioCtx.resume();
+        startBGM(); // 開始背景音樂
         resetGame();
         gameState = 'PLAYING';
         menu.style.display = 'none';
@@ -455,14 +486,14 @@
         if (player.invincibleTimer > 0 && Math.floor(performance.now()/80)%2) ctx.globalAlpha = 0.3;
         const s = player.size / 40;
         ctx.strokeStyle = "#38bdf8"; ctx.fillStyle = "#38bdf8"; ctx.lineWidth = 4 * s; ctx.lineCap = "round";
-        ctx.beginPath(); ctx.arc(0, -15 * s, 7 * s, 0, Math.PI * 2); ctx.fill(); // 頭
-        ctx.beginPath(); ctx.moveTo(0, -9 * s); ctx.lineTo(0, 10 * s); ctx.stroke(); // 身體
+        ctx.beginPath(); ctx.arc(0, -15 * s, 7 * s, 0, Math.PI * 2); ctx.fill(); 
+        ctx.beginPath(); ctx.moveTo(0, -9 * s); ctx.lineTo(0, 10 * s); ctx.stroke(); 
         const armSwing = Math.sin(player.animFrame) * 10 * s;
-        ctx.beginPath(); ctx.moveTo(0, -5 * s); ctx.lineTo(-12 * s, armSwing); ctx.stroke(); // 左手
-        ctx.beginPath(); ctx.moveTo(0, -5 * s); ctx.lineTo(12 * s, -armSwing); ctx.stroke(); // 右手
+        ctx.beginPath(); ctx.moveTo(0, -5 * s); ctx.lineTo(-12 * s, armSwing); ctx.stroke(); 
+        ctx.beginPath(); ctx.moveTo(0, -5 * s); ctx.lineTo(12 * s, -armSwing); ctx.stroke(); 
         const legSwing = Math.sin(player.animFrame) * 8 * s;
-        ctx.beginPath(); ctx.moveTo(0, 10 * s); ctx.lineTo(-8 * s, 22 * s + legSwing); ctx.stroke(); // 左腳
-        ctx.beginPath(); ctx.moveTo(0, 10 * s); ctx.lineTo(8 * s, 22 * s - legSwing); ctx.stroke(); // 右腳
+        ctx.beginPath(); ctx.moveTo(0, 10 * s); ctx.lineTo(-8 * s, 22 * s + legSwing); ctx.stroke(); 
+        ctx.beginPath(); ctx.moveTo(0, 10 * s); ctx.lineTo(8 * s, 22 * s - legSwing); ctx.stroke(); 
         ctx.restore();
 
         // 敵人繪製
@@ -487,8 +518,6 @@
                 ctx.lineTo(-r, r);
                 ctx.quadraticCurveTo(-r, -r, 0, -r * 1.8);
                 ctx.fill();
-                ctx.fillStyle = "rgba(255,255,255,0.4)";
-                ctx.beginPath(); ctx.ellipse(-r*0.3, -r*0.5, r*0.2, r*0.5, 0, 0, Math.PI*2); ctx.fill();
             } else if (e.type === TYPES.GHOST) {
                 const alpha = 0.3 + Math.abs(Math.sin(now / 200)) * 0.5;
                 ctx.globalAlpha = alpha;
@@ -515,7 +544,6 @@
                     ctx.lineTo(r, 0); ctx.lineTo(r*0.4, r*0.2);
                 }
                 ctx.closePath(); ctx.fill();
-                ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.stroke();
             } else if (e.type === TYPES.TORNADO) {
                 ctx.rotate(e.angle * 3);
                 ctx.strokeStyle = e.type.color; ctx.lineWidth = 3;
