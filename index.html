@@ -76,13 +76,6 @@
             font-size: 20px;
         }
 
-        #status-effects {
-            color: #fbbf24;
-            font-size: 14px;
-            margin-top: 5px;
-            font-weight: bold;
-        }
-
         #menu {
             position: absolute;
             top: 50%;
@@ -136,20 +129,18 @@
             <div id="score">分數: 0</div>
             <div id="highScore">最高: 0</div>
         </div>
-        <div id="status-effects"></div>
     </div>
 
     <div id="menu">
         <h1 id="menu-title">特性路徑大挑戰</h1>
-        <p id="menu-desc">不同顏色的球有不同的飛行規則！<br>子彈直線衝刺、旋風S型走位...</p>
+        <p id="menu-desc">不同顏色的球有不同的飛行規則！<br>子彈直線衝刺、幽靈飄忽不定...</p>
         <button id="start-btn">開始挑戰</button>
     </div>
 </div>
 
 <script>
-    // --- 音效引擎 (Web Audio API) ---
+    // --- 音效引擎 ---
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    
     function playTone(freq, type, duration, volume = 0.1) {
         if (audioCtx.state === 'suspended') audioCtx.resume();
         const osc = audioCtx.createOscillator();
@@ -165,36 +156,20 @@
     }
 
     const sounds = {
-        hit: () => { playTone(150, 'sawtooth', 0.3, 0.1); },
+        hit: () => playTone(150, 'sawtooth', 0.3, 0.1),
         collect: () => { playTone(523, 'sine', 0.1, 0.1); setTimeout(()=>playTone(783, 'sine', 0.2, 0.1), 100); },
         levelup: () => { playTone(440, 'square', 0.1, 0.05); setTimeout(()=>playTone(659, 'square', 0.3, 0.05), 200); },
-        gameover: () => { playTone(200, 'sawtooth', 0.5, 0.1); }
+        gameover: () => playTone(200, 'sawtooth', 0.5, 0.1)
     };
 
-    let bgmInterval;
-    function startBGM() {
-        if (bgmInterval) clearInterval(bgmInterval);
-        const notes = [261, 293, 329, 349, 392, 349, 329, 293];
-        let i = 0;
-        bgmInterval = setInterval(() => {
-            if (gameState === 'PLAYING') {
-                playTone(notes[i], 'triangle', 0.4, 0.02); 
-                i = (i + 1) % notes.length;
-            }
-        }, 500);
-    }
-
-    // --- 遊戲邏輯 ---
+    // --- 遊戲常數與狀態 ---
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const scoreElement = document.getElementById('score');
     const highScoreElement = document.getElementById('highScore');
     const livesElement = document.getElementById('lives-display');
     const levelElement = document.getElementById('level-display');
-    const statusElement = document.getElementById('status-effects');
     const menu = document.getElementById('menu');
-    const menuTitle = document.getElementById('menu-title');
-    const menuDesc = document.getElementById('menu-desc');
     const startBtn = document.getElementById('start-btn');
 
     let gameState = 'START';
@@ -204,23 +179,23 @@
     const POINTS_PER_LEVEL = 200;
     let highScore = localStorage.getItem('dodgeProScore') || 0;
     let lastTime = 0;
-    let animationId;
     let levelUpMsgTimer = 0;
 
     const TYPES = {
         NORMAL: { name: "經典火球", color: "#f97316", behavior: "linear" },
-        BULLET: { name: "直擊子彈", color: "#f43f5e", behavior: "straight" },
+        BULLET: { name: "高速子彈", color: "#f43f5e", behavior: "straight" },
         ICE: { name: "冰爆凝結", color: "#38bdf8", behavior: "pause_go" },
         TORNADO: { name: "幻影旋風", color: "#a855f7", behavior: "sin_wave" },
-        GHOST: { name: "幽靈閃爍", color: "#94a3b8", behavior: "jitter" },
+        GHOST: { name: "幽靈閃爍", color: "#cbd5e1", behavior: "jitter" },
         HEART: { name: "愛心", color: "#ec4899", label: "❤️" },
         BUFF: { name: "縮小藥水", color: "#22c55e", label: "✨" }
     };
 
-    let lastTouchX = 0, lastTouchY = 0, isTouching = false;
+    let isTouching = false;
+    let lastTouchX = 0, lastTouchY = 0;
     const player = {
         x: 0, y: 0, baseSize: 40, size: 40, lives: 5, maxLives: 5,
-        invincibleTimer: 0, effectTimer: 0, currentEffect: null, animFrame: 0
+        invincibleTimer: 0, effectTimer: 0, animFrame: 0
     };
 
     let enemies = [];
@@ -232,18 +207,12 @@
         canvas.height = container.clientHeight;
         player.x = canvas.width / 2;
         player.y = canvas.height * 0.8;
-        draw();
     }
     window.addEventListener('resize', resize);
+    resize();
     highScoreElement.innerText = `最高: ${highScore}`;
 
-    function updateLivesUI() {
-        let hearts = '';
-        for(let i=0; i<player.maxLives; i++) hearts += i < player.lives ? '❤️' : '🖤';
-        livesElement.innerText = hearts;
-    }
-
-    // 觸控與滑鼠邏輯
+    // --- 事件監聽 ---
     function handleStart(e) {
         if (gameState !== 'PLAYING') return;
         const t = e.touches ? e.touches[0] : e;
@@ -269,7 +238,6 @@
 
     startBtn.addEventListener('click', () => {
         if (audioCtx.state === 'suspended') audioCtx.resume();
-        startBGM();
         resetGame();
         gameState = 'PLAYING';
         menu.style.display = 'none';
@@ -285,13 +253,17 @@
         levelElement.innerText = `關卡 1 / ${MAX_LEVEL}`;
     }
 
+    function updateLivesUI() {
+        let hearts = '';
+        for(let i=0; i<player.maxLives; i++) hearts += i < player.lives ? '❤️' : '🖤';
+        livesElement.innerText = hearts;
+    }
+
     function spawnEnemy() {
         const rand = Math.random();
         let type = TYPES.NORMAL;
-        
-        // 隨關卡推進解鎖不同球種
-        if (rand < 0.07) type = TYPES.HEART;
-        else if (rand < 0.11) type = TYPES.BUFF;
+        if (rand < 0.06) type = TYPES.HEART;
+        else if (rand < 0.10) type = TYPES.BUFF;
         else {
             const pool = [TYPES.NORMAL];
             if (currentLevel >= 2) pool.push(TYPES.BULLET);
@@ -301,24 +273,15 @@
             type = pool[Math.floor(Math.random() * pool.length)];
         }
 
-        let size = 32 + Math.random() * 8;
-        let speed = 4 + (currentLevel * 0.5);
-        
-        // 根據類型微調屬性
-        if (type === TYPES.BULLET) { size = 20; speed *= 1.7; }
-        if (type === TYPES.ICE) { size = 42; speed *= 0.8; }
-        if (type === TYPES.TORNADO) { size = 35; }
+        let size = 34 + Math.random() * 6;
+        let speed = 4 + (currentLevel * 0.45);
+        if (type === TYPES.BULLET) { size = 22; speed *= 1.8; }
+        if (type === TYPES.GHOST) { size = 38; speed *= 0.9; }
 
         enemies.push({
             startX: Math.random() * (canvas.width - size),
-            x: 0,
-            y: -size,
-            size: size,
-            speed: speed,
-            type: type,
-            angle: 0,
-            timeOffset: Math.random() * 1000,
-            spawnTime: performance.now()
+            x: 0, y: -size, size: size, speed: speed, type: type,
+            angle: 0, timeOffset: Math.random() * 1000, spawnTime: performance.now()
         });
         enemies[enemies.length-1].x = enemies[enemies.length-1].startX;
     }
@@ -333,7 +296,7 @@
         player.animFrame += dt * 0.01;
 
         enemySpawnTimer += dt;
-        const interval = Math.max(120, 900 - (currentLevel * 70));
+        const interval = Math.max(130, 850 - (currentLevel * 60));
         if (enemySpawnTimer > interval) {
             spawnEnemy();
             enemySpawnTimer = 0;
@@ -347,45 +310,33 @@
             const e = enemies[i];
             const dtScale = dt / 16.6;
             const elapsed = now - e.spawnTime;
-            
-            // --- 特性路徑邏輯 ---
+
             switch(e.type.behavior) {
-                case 'linear': // 經典：受一點點重力影響，越掉越快
-                    e.y += (e.speed + (elapsed / 1000) * 2) * dtScale;
+                case 'linear': e.y += (e.speed + (elapsed / 1200)) * dtScale; break;
+                case 'straight': e.y += e.speed * dtScale; break;
+                case 'sin_wave': 
+                    e.y += e.speed * 0.85 * dtScale;
+                    e.x = e.startX + Math.sin((elapsed / 300) + e.timeOffset) * (canvas.width * 0.2);
                     break;
-                case 'straight': // 子彈：絕對直線且等速衝刺
+                case 'pause_go':
+                    const cycle = elapsed % 1800;
+                    if (cycle < 1000) e.y += e.speed * 0.5 * dtScale;
+                    else if (cycle < 1400) e.y += e.speed * 0.1 * dtScale;
+                    else e.y += e.speed * 2.8 * dtScale;
+                    break;
+                case 'jitter':
                     e.y += e.speed * dtScale;
+                    e.x = e.startX + Math.sin(elapsed / 50) * 8;
                     break;
-                case 'sin_wave': // 旋風：大幅度S型晃動
-                    e.y += e.speed * 0.9 * dtScale;
-                    e.x = e.startX + Math.sin((elapsed / 300) + e.timeOffset) * (canvas.width * 0.25);
-                    break;
-                case 'pause_go': // 冰爆：前進 -> 停頓 -> 暴衝
-                    const cycle = elapsed % 2000;
-                    if (cycle < 1200) { // 前進期
-                        e.y += e.speed * 0.6 * dtScale;
-                    } else if (cycle < 1600) { // 凝結停頓期
-                        e.y += e.speed * 0.1 * dtScale;
-                    } else { // 破冰暴衝期
-                        e.y += e.speed * 2.5 * dtScale;
-                    }
-                    break;
-                case 'jitter': // 幽靈：微小震動並配合隨機小跳躍
-                    e.y += e.speed * dtScale;
-                    e.x = e.startX + (Math.random() - 0.5) * 15;
-                    break;
-                default:
-                    e.y += e.speed * dtScale;
+                default: e.y += e.speed * dtScale;
             }
 
-            e.angle += 0.1 * dtScale;
+            e.angle += 0.15 * dtScale;
 
-            // 碰撞檢測
             const dx = player.x - (e.x + e.size/2);
             const dy = player.y - (e.y + e.size/2);
             const dist = Math.sqrt(dx*dx + dy*dy);
-
-            if (dist < (player.size/2 + e.size/2) * 0.85) {
+            if (dist < (player.size/2 + e.size/2) * 0.8) {
                 handleCollision(e);
                 enemies.splice(i, 1);
                 continue;
@@ -398,7 +349,6 @@
         if (e.type === TYPES.HEART) {
             sounds.collect();
             if (player.lives < player.maxLives) player.lives++;
-            else score += 150;
             updateLivesUI();
         } else if (e.type === TYPES.BUFF) {
             sounds.collect();
@@ -428,8 +378,8 @@
     function gameOver() {
         gameState = 'GAMEOVER';
         sounds.gameover();
-        menuTitle.innerText = "挑戰失敗";
-        menuDesc.innerHTML = `你在第 ${currentLevel} 關體力透支...<br>得分: <span style="color:#f43f5e">${score}</span>`;
+        document.getElementById('menu-title').innerText = "挑戰失敗";
+        document.getElementById('menu-desc').innerHTML = `得分: <span style="color:#f43f5e">${score}</span><br>你在第 ${currentLevel} 關倒下了`;
         startBtn.innerText = "再次啟動";
         menu.style.display = 'block';
         if (score > highScore) {
@@ -442,86 +392,112 @@
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // 繪製格線背景
-        ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-        ctx.lineWidth = 1;
-        for(let i=0; i<canvas.width; i+=40) {
-            ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
-        }
-
-        // 玩家 (小人)
+        // 玩家繪製
         ctx.save();
         ctx.translate(player.x, player.y);
         if (player.invincibleTimer > 0 && Math.floor(performance.now()/80)%2) ctx.globalAlpha = 0.3;
         const s = player.size / 40;
-        ctx.fillStyle = "#38bdf8";
-        ctx.beginPath(); ctx.arc(0, -15*s, 7*s, 0, Math.PI*2); ctx.fill(); // 頭
-        ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 4*s; ctx.lineCap="round";
-        ctx.beginPath(); ctx.moveTo(0, -9*s); ctx.lineTo(0, 10*s); ctx.stroke(); // 身
-        const legY = 10*s + Math.sin(player.animFrame)*5*s;
-        ctx.beginPath(); ctx.moveTo(0, 10*s); ctx.lineTo(-8*s, 22*s); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(0, 10*s); ctx.lineTo(8*s, 22*s); ctx.stroke();
+        ctx.strokeStyle = "#38bdf8"; ctx.fillStyle = "#38bdf8"; ctx.lineWidth = 4 * s; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.arc(0, -15 * s, 7 * s, 0, Math.PI * 2); ctx.fill(); // 頭
+        ctx.beginPath(); ctx.moveTo(0, -9 * s); ctx.lineTo(0, 10 * s); ctx.stroke(); // 身體
+        const armSwing = Math.sin(player.animFrame) * 10 * s;
+        ctx.beginPath(); ctx.moveTo(0, -5 * s); ctx.lineTo(-12 * s, armSwing); ctx.stroke(); // 左手
+        ctx.beginPath(); ctx.moveTo(0, -5 * s); ctx.lineTo(12 * s, -armSwing); ctx.stroke(); // 右手
+        const legSwing = Math.sin(player.animFrame) * 8 * s;
+        ctx.beginPath(); ctx.moveTo(0, 10 * s); ctx.lineTo(-8 * s, 22 * s + legSwing); ctx.stroke(); // 左腳
+        ctx.beginPath(); ctx.moveTo(0, 10 * s); ctx.lineTo(8 * s, 22 * s - legSwing); ctx.stroke(); // 右腳
         ctx.restore();
 
-        // 敵人
+        // 敵人繪製
         enemies.forEach(e => {
             ctx.save();
             ctx.translate(e.x + e.size/2, e.y + e.size/2);
             const r = e.size / 2;
             const now = performance.now();
 
-            if (e.type === TYPES.GHOST) {
-                ctx.globalAlpha = 0.2 + Math.abs(Math.sin(now/150)) * 0.8;
-            }
-
-            if (e.type.label) {
-                // 道具類
-                ctx.shadowBlur = 10; ctx.shadowColor = e.type.color;
+            if (e.type === TYPES.BULLET) {
+                // --- 子彈視覺更新：尖頭長形 + 火焰 ---
+                ctx.rotate(Math.PI); // 向下飛
+                // 火焰
+                const fireY = r * 1.5 + Math.random() * 10;
+                const gradFire = ctx.createLinearGradient(0, 0, 0, fireY);
+                gradFire.addColorStop(0, "#f43f5e");
+                gradFire.addColorStop(1, "transparent");
+                ctx.fillStyle = gradFire;
+                ctx.beginPath(); ctx.moveTo(-r*0.6, r); ctx.lineTo(0, fireY); ctx.lineTo(r*0.6, r); ctx.fill();
+                // 彈體 (梭型)
+                ctx.fillStyle = "#f43f5e";
+                ctx.beginPath();
+                ctx.moveTo(0, -r * 1.8); // 尖頭
+                ctx.quadraticCurveTo(r, -r, r, r); // 右側
+                ctx.lineTo(-r, r); // 底部
+                ctx.quadraticCurveTo(-r, -r, 0, -r * 1.8); // 左側
+                ctx.fill();
+                // 高光
+                ctx.fillStyle = "rgba(255,255,255,0.4)";
+                ctx.beginPath(); ctx.ellipse(-r*0.3, -r*0.5, r*0.2, r*0.5, 0, 0, Math.PI*2); ctx.fill();
+            } else if (e.type === TYPES.GHOST) {
+                // --- 幽靈視覺更新：半透明裙擺 + 眼睛 ---
+                const alpha = 0.3 + Math.abs(Math.sin(now / 200)) * 0.5;
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = "#cbd5e1";
+                // 身體
+                ctx.beginPath();
+                ctx.arc(0, -r*0.2, r, Math.PI, 0); // 頭部圓弧
+                ctx.lineTo(r, r);
+                // 裙擺波動
+                for(let j=0; j<3; j++) {
+                    const waveX = r - (j * (r*0.66)) - r*0.33;
+                    const waveY = r + Math.sin(now/100 + j)*5;
+                    ctx.quadraticCurveTo(waveX + r*0.3, waveY + 5, waveX - r*0.3, r);
+                }
+                ctx.lineTo(-r, r);
+                ctx.closePath(); ctx.fill();
+                // 眼睛
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = "#1e293b";
+                ctx.beginPath(); ctx.arc(-r*0.4, -r*0.2, r*0.15, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(r*0.4, -r*0.2, r*0.15, 0, Math.PI*2); ctx.fill();
+            } else if (e.type === TYPES.ICE) {
+                ctx.fillStyle = e.type.color;
+                ctx.beginPath();
+                for(let j=0; j<8; j++) {
+                    ctx.rotate(Math.PI/4);
+                    ctx.lineTo(r, 0); ctx.lineTo(r*0.4, r*0.2);
+                }
+                ctx.closePath(); ctx.fill();
+                ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.stroke();
+            } else if (e.type === TYPES.TORNADO) {
+                ctx.rotate(e.angle * 3);
+                ctx.strokeStyle = e.type.color; ctx.lineWidth = 3;
+                for(let j=0; j<4; j++) {
+                    ctx.rotate(Math.PI/2);
+                    ctx.beginPath(); ctx.moveTo(0,0); ctx.quadraticCurveTo(r, r, 0, r*1.3); ctx.stroke();
+                }
+            } else if (e.type.label) {
                 ctx.fillStyle = e.type.color;
                 ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
-                ctx.fillStyle = "white"; ctx.font = `${r}px Arial`; ctx.textAlign="center"; ctx.textBaseline="middle";
-                ctx.fillText(e.type.label, 0, 0);
+                ctx.fillStyle = "white"; ctx.font = `bold ${r}px Arial`; ctx.textAlign="center"; ctx.textBaseline="middle";
+                ctx.fillText(e.type.label, 0, 2);
             } else {
-                // 球類視覺
-                const grad = ctx.createRadialGradient(-r*0.2,-r*0.2,0,0,0,r);
-                grad.addColorStop(0, "white");
-                grad.addColorStop(0.3, e.type.color);
-                grad.addColorStop(1, "#000");
+                // 一般火球
+                const grad = ctx.createRadialGradient(-r*0.3, -r*0.3, r*0.1, 0, 0, r);
+                grad.addColorStop(0, "#ffedd5");
+                grad.addColorStop(0.4, e.type.color);
+                grad.addColorStop(1, "#7c2d12");
                 ctx.fillStyle = grad;
-                
-                if (e.type === TYPES.BULLET) {
-                    ctx.beginPath(); ctx.ellipse(0,0, r*0.7, r*1.3, 0, 0, Math.PI*2); ctx.fill();
-                    // 噴射尾跡
-                    ctx.fillStyle = "rgba(244, 63, 94, 0.3)";
-                    ctx.beginPath(); ctx.moveTo(-r*0.5, -r); ctx.lineTo(0, -r*3); ctx.lineTo(r*0.5, -r); ctx.fill();
-                } else if (e.type === TYPES.TORNADO) {
-                    ctx.rotate(e.angle * 3);
-                    ctx.strokeStyle = e.type.color; ctx.lineWidth = 2;
-                    for(let j=0; j<4; j++) {
-                        ctx.rotate(Math.PI/2);
-                        ctx.beginPath(); ctx.moveTo(0,0); ctx.quadraticCurveTo(r, r, 0, r*1.2); ctx.stroke();
-                    }
-                    ctx.beginPath(); ctx.arc(0, 0, r*0.4, 0, Math.PI*2); ctx.fill();
-                } else if (e.type === TYPES.ICE) {
-                    ctx.beginPath();
-                    for(let j=0; j<8; j++) {
-                        ctx.rotate(Math.PI/4);
-                        ctx.lineTo(r, 0); ctx.lineTo(r*0.4, r*0.2);
-                    }
-                    ctx.closePath(); ctx.fill();
-                } else {
-                    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
-                }
+                ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
             }
             ctx.restore();
         });
 
         // 升級提示
         if (levelUpMsgTimer > 0) {
+            ctx.save();
             ctx.fillStyle = "rgba(34, 197, 94, "+ Math.min(1, levelUpMsgTimer/500) +")";
-            ctx.font = "bold 28px Arial"; ctx.textAlign = "center";
-            const currentTypeName = TYPES[Object.keys(TYPES)[(currentLevel-1) % 5]].name;
-            ctx.fillText(`解鎖：${currentTypeName}`, canvas.width/2, canvas.height/2);
+            ctx.font = "bold 24px Arial"; ctx.textAlign = "center";
+            ctx.fillText(`解鎖新球種：${TYPES[Object.keys(TYPES)[(currentLevel-1)%5]].name}`, canvas.width/2, canvas.height/2);
+            ctx.restore();
         }
     }
 
@@ -530,10 +506,8 @@
         update(time - lastTime);
         draw();
         lastTime = time;
-        animationId = requestAnimationFrame(gameLoop);
+        requestAnimationFrame(gameLoop);
     }
-
-    resize();
 </script>
 </body>
 </html>
