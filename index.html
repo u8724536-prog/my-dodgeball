@@ -367,7 +367,6 @@
         else if (rand < 0.10) type = TYPES.BUFF;
         else {
             const pool = [TYPES.NORMAL];
-            // 修正關卡判定：第 2 關出現子彈，第 4 關冰球...
             if (currentLevel >= 2) pool.push(TYPES.BULLET);
             if (currentLevel >= 4) pool.push(TYPES.ICE);
             if (currentLevel >= 6) pool.push(TYPES.TORNADO);
@@ -450,12 +449,18 @@
     function handleCollision(e) {
         if (e.type === TYPES.HEART) {
             sounds.collect();
+            // 吃到愛心回血 + 加 50 分
             if (player.lives < player.maxLives) player.lives++;
+            score += 50;
+            scoreElement.innerText = `分數: ${score}`;
             updateLivesUI();
+            checkLevelUp();
         } else if (e.type === TYPES.BUFF) {
             sounds.collect();
             player.size = player.baseSize * 0.6;
             player.effectTimer = 6000;
+            score += 10; // 稍微獎勵
+            scoreElement.innerText = `分數: ${score}`;
         } else {
             if (player.invincibleTimer <= 0) {
                 player.lives--;
@@ -519,14 +524,12 @@
             if (e.type === TYPES.BULLET) {
                 ctx.rotate(Math.PI); 
                 const fireY = r * 1.5 + Math.random() * 10;
-                // 鐵灰色子彈火焰
                 const gradFire = ctx.createLinearGradient(0, 0, 0, fireY);
                 gradFire.addColorStop(0, "#475569"); 
                 gradFire.addColorStop(1, "transparent");
                 ctx.fillStyle = gradFire;
                 ctx.beginPath(); ctx.moveTo(-r*0.6, r); ctx.lineTo(0, fireY); ctx.lineTo(r*0.6, r); ctx.fill();
                 
-                // 鐵灰色本體
                 ctx.fillStyle = "#64748b";
                 ctx.beginPath();
                 ctx.moveTo(0, -r * 1.8);
@@ -587,7 +590,6 @@
             ctx.save();
             ctx.fillStyle = "rgba(34, 197, 94, "+ Math.min(1, levelUpMsgTimer/500) +")";
             ctx.font = "bold 24px Arial"; ctx.textAlign = "center";
-            // 修正顯示當前解鎖的球種名稱邏輯
             let unlockedName = "新挑戰";
             if (currentLevel == 2) unlockedName = TYPES.BULLET.name;
             else if (currentLevel == 4) unlockedName = TYPES.ICE.name;
