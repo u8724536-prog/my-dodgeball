@@ -3,14 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>躲避球大挑戰 - 音效增強版</title>
+    <title>躲避球大挑戰 - 手機優化版</title>
     <style>
+        /* 遊戲全域顏色定義 */
         :root {
-            --bg-color: #0f172a;
-            --player-color: #38bdf8;
-            --text-color: #f8fafc;
-            --danger-color: #f43f5e;
-            --accent-color: #22c55e;
+            --bg-color: #0f172a;      /* 深藍底色 */
+            --player-color: #38bdf8;  /* 玩家天藍色 */
+            --text-color: #f8fafc;    /* 文字白 */
+            --danger-color: #f43f5e;  /* 敵方玫瑰紅 */
+            --accent-color: #22c55e;  /* 關卡綠色 */
         }
 
         body {
@@ -19,7 +20,7 @@
             overflow: hidden;
             background-color: var(--bg-color);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            touch-action: none;
+            touch-action: none; /* 防止手機瀏覽器預設的縮放與滾動干擾遊戲 */
             display: flex;
             justify-content: center;
             align-items: center;
@@ -30,7 +31,7 @@
             position: relative;
             width: 100%;
             height: 100%;
-            max-width: 600px;
+            max-width: 600px; /* 電腦版維持手機比例 */
             max-height: 1000px;
             background-color: #1e293b;
         }
@@ -41,12 +42,13 @@
             height: 100%;
         }
 
+        /* UI 文字層疊設定 */
         #ui-layer {
             position: absolute;
             top: 20px;
             left: 20px;
             right: 20px;
-            pointer-events: none;
+            pointer-events: none; /* 讓 UI 層不會擋住觸碰事件 */
             display: flex;
             flex-direction: column;
             color: var(--text-color);
@@ -77,12 +79,13 @@
         }
 
         #status-effects {
-            color: #fbbf24;
+            color: #fbbf24; /* 狀態文字（黃色） */
             font-size: 14px;
             margin-top: 5px;
             font-weight: bold;
         }
 
+        /* 選單樣式 */
         #menu {
             position: absolute;
             top: 50%;
@@ -127,6 +130,7 @@
 <div id="game-container">
     <canvas id="gameCanvas"></canvas>
     
+    <!-- UI 資訊欄 -->
     <div id="ui-layer">
         <div class="stats-row">
             <div id="level-display">關卡 1 / 10</div>
@@ -139,23 +143,28 @@
         <div id="status-effects"></div>
     </div>
 
+    <!-- 遊戲主選單 -->
     <div id="menu">
         <h1 id="menu-title">躲避球大挑戰</h1>
-        <p id="menu-desc">控制藍色小人，躲避飛來的火焰球！<br>生命全滿時愛心加 100 分！</p>
+        <p id="menu-desc">滑動螢幕任何地方即可移動小人！<br>生命全滿時獲得愛心可額外加分！</p>
         <button id="start-btn">開始挑戰</button>
     </div>
 </div>
 
 <script>
-    /** 音效引擎系統 **/
+    /** * 音效引擎系統 (Web Audio API)
+     * 優點：不需要下載外部 MP3，檔案極小且無延遲
+     **/
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     
+    // 基本合成器函數：頻率, 波形類型, 持續時間, 音量
     function playTone(freq, type, duration, volume = 0.1) {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = type;
         osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
         gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+        // 音量隨時間遞減（淡出）
         gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
@@ -163,28 +172,29 @@
         osc.stop(audioCtx.currentTime + duration);
     }
 
+    // 預設遊戲音效清單
     const sounds = {
-        hit: () => {
+        hit: () => { // 受傷音
             playTone(150, 'sawtooth', 0.3, 0.1);
             playTone(100, 'sine', 0.2, 0.2);
         },
-        collect: () => {
-            playTone(523.25, 'sine', 0.1, 0.1); // C5
-            setTimeout(() => playTone(659.25, 'sine', 0.1, 0.1), 50); // E5
-            setTimeout(() => playTone(783.99, 'sine', 0.2, 0.1), 100); // G5
+        collect: () => { // 吃到道具音
+            playTone(523.25, 'sine', 0.1, 0.1);
+            setTimeout(() => playTone(659.25, 'sine', 0.1, 0.1), 50);
+            setTimeout(() => playTone(783.99, 'sine', 0.2, 0.1), 100);
         },
-        levelup: () => {
+        levelup: () => { // 升級音
             playTone(440, 'square', 0.1, 0.05);
             setTimeout(() => playTone(554.37, 'square', 0.1, 0.05), 100);
             setTimeout(() => playTone(659.25, 'square', 0.3, 0.05), 200);
         },
-        gameover: () => {
+        gameover: () => { // 遊戲結束音
             playTone(300, 'sawtooth', 0.5, 0.1);
             playTone(200, 'sawtooth', 0.5, 0.1);
         }
     };
 
-    // 簡單的 BGM 循環
+    // 背景音樂 (BGM) 定時器
     let bgmInterval;
     function startBGM() {
         if (bgmInterval) clearInterval(bgmInterval);
@@ -192,12 +202,13 @@
         let i = 0;
         bgmInterval = setInterval(() => {
             if (gameState === 'PLAYING') {
-                playTone(notes[i], 'triangle', 0.4, 0.03);
+                playTone(notes[i], 'triangle', 0.4, 0.03); // 使用三角形波聽起來較溫和
                 i = (i + 1) % notes.length;
             }
         }, 500);
     }
 
+    // 初始化畫布
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const scoreElement = document.getElementById('score');
@@ -210,6 +221,7 @@
     const menuDesc = document.getElementById('menu-desc');
     const startBtn = document.getElementById('start-btn');
 
+    // 遊戲狀態與參數
     let gameState = 'START';
     let score = 0;
     let currentLevel = 1;
@@ -218,34 +230,39 @@
     let highScore = localStorage.getItem('dodgeProScore') || 0;
     let lastTime = 0;
     let animationId;
-    let levelUpMsgTimer = 0;
+    let levelUpMsgTimer = 0; // 顯示升級文字用的計時器
 
+    // 物件類型定義
     const TYPES = {
-        BALL: { color: '#f97316', label: '' },
-        HEART: { color: '#ec4899', label: '❤️' },
-        SHRINK: { color: '#22c55e', label: '✨' },
-        ENLARGE: { color: '#eab308', label: '⚠️' }
+        BALL: { color: '#f97316', label: '' },      /* 敵人火焰球 */
+        HEART: { color: '#ec4899', label: '❤️' },   /* 補血愛心 */
+        SHRINK: { color: '#22c55e', label: '✨' },  /* 縮小道具 */
+        ENLARGE: { color: '#eab308', label: '⚠️' }  /* 放大陷阱 */
     };
+
+    /** 核心操控邏輯：相對位移 (防止手指遮擋) **/
+    let lastTouchX = 0;
+    let lastTouchY = 0;
+    let isTouching = false;
 
     const player = {
         x: 0,
         y: 0,
         baseSize: 40,
         size: 40,
-        targetX: 0,
-        targetY: 0,
         speed: 0.22,
         lives: 5,
         maxLives: 5,
-        invincibleTimer: 0,
-        effectTimer: 0,
+        invincibleTimer: 0, // 無敵閃爍時間
+        effectTimer: 0,     // 道具持續時間
         currentEffect: null,
-        animFrame: 0
+        animFrame: 0        // 玩家跑步動畫幀
     };
 
     let enemies = [];
     let enemySpawnTimer = 0;
 
+    // 自動調整畫布大小以適應螢幕
     function resize() {
         const container = document.getElementById('game-container');
         canvas.width = container.clientWidth;
@@ -253,8 +270,6 @@
         if (gameState !== 'PLAYING') {
             player.x = canvas.width / 2;
             player.y = canvas.height * 0.8;
-            player.targetX = player.x;
-            player.targetY = player.y;
         }
         draw();
     }
@@ -262,6 +277,7 @@
     window.addEventListener('resize', resize);
     highScoreElement.innerText = `最高: ${highScore}`;
 
+    // 更新愛心 UI 顯示
     function updateLivesUI() {
         let hearts = '';
         for(let i=0; i<player.maxLives; i++) {
@@ -270,18 +286,51 @@
         livesElement.innerText = hearts;
     }
 
-    function handleInput(e) {
+    /** 觸控/滑鼠 事件處理 **/
+    function onTouchStart(e) {
         if (gameState !== 'PLAYING') return;
         const t = e.touches ? e.touches[0] : e;
-        const rect = canvas.getBoundingClientRect();
-        player.targetX = t.clientX - rect.left;
-        player.targetY = t.clientY - rect.top;
+        lastTouchX = t.clientX;
+        lastTouchY = t.clientY;
+        isTouching = true;
     }
 
-    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(e); }, {passive: false});
-    canvas.addEventListener('touchmove', (e) => { e.preventDefault(); handleInput(e); }, {passive: false});
-    canvas.addEventListener('mousemove', handleInput);
+    function onTouchMove(e) {
+        if (gameState !== 'PLAYING' || !isTouching) return;
+        e.preventDefault(); // 禁止瀏覽器預設滾動
+        const t = e.touches ? e.touches[0] : e;
+        
+        // 算出手指這次移動了多少像素
+        const dx = t.clientX - lastTouchX;
+        const dy = t.clientY - lastTouchY;
 
+        // 玩家小人跟著手指移動相同的距離（這就是相對位移！）
+        player.x += dx;
+        player.y += dy;
+
+        // 更新最後觸碰位置，供下一幀計算
+        lastTouchX = t.clientX;
+        lastTouchY = t.clientY;
+
+        // 碰撞邊界限制：防止小人跑出螢幕外
+        player.x = Math.max(player.size/2, Math.min(canvas.width - player.size/2, player.x));
+        player.y = Math.max(player.size/2, Math.min(canvas.height - player.size/2, player.y));
+    }
+
+    function onTouchEnd() {
+        isTouching = false;
+    }
+
+    // 綁定行動端事件
+    canvas.addEventListener('touchstart', onTouchStart, {passive: false});
+    canvas.addEventListener('touchmove', onTouchMove, {passive: false});
+    canvas.addEventListener('touchend', onTouchEnd);
+    // 綁定電腦端滑鼠事件
+    canvas.addEventListener('mousedown', onTouchStart);
+    window.addEventListener('mousemove', onTouchMove);
+    window.addEventListener('mouseup', onTouchEnd);
+
+    // 開始按鈕
     startBtn.addEventListener('click', () => {
         if (audioCtx.state === 'suspended') audioCtx.resume();
         resetGame();
@@ -293,6 +342,7 @@
         requestAnimationFrame(gameLoop);
     });
 
+    // 重置遊戲數據
     function resetGame() {
         score = 0;
         currentLevel = 1;
@@ -310,13 +360,14 @@
         updateLivesUI();
         player.x = canvas.width / 2;
         player.y = canvas.height * 0.8;
-        player.targetX = player.x;
-        player.targetY = player.y;
     }
 
+    /** 生成物品/敵人 **/
     function spawnItem() {
         const rand = Math.random();
-        let type = TYPES.BALL;
+        let type = TYPES.BALL; // 預設是火球
+        
+        // 根據關卡微調機率
         const heartChance = 0.08 + (currentLevel * 0.015);
         const shrinkChance = 0.04;
         const enlargeChance = 0.03;
@@ -327,6 +378,7 @@
 
         const size = 28 + Math.random() * 12;
         const baseSpeed = 3.5 + (currentLevel * 0.8);
+        
         enemies.push({
             x: Math.random() * (canvas.width - size),
             y: -size,
@@ -337,14 +389,16 @@
         });
     }
 
+    /** 處理碰撞後的道具/傷害效果 **/
     function applyEffect(type) {
         if (type === TYPES.BALL) {
+            // 受傷
             if (player.invincibleTimer <= 0) {
                 player.lives--;
                 sounds.hit();
                 updateLivesUI();
                 if (player.lives <= 0) gameOver();
-                else player.invincibleTimer = 1500;
+                else player.invincibleTimer = 1500; // 給予 1.5 秒無敵時間
             }
             return;
         }
@@ -355,19 +409,21 @@
                 player.lives++;
                 updateLivesUI();
             } else {
-                score += 100; // 生命全滿改為加 100
+                score += 100; // 滿血吃到愛心獎勵分數
                 scoreElement.innerText = `分數: ${score}`;
                 checkLevelUp();
             }
             return;
         }
 
+        // 處理縮放道具
         player.currentEffect = type;
-        player.effectTimer = 5000;
+        player.effectTimer = 5000; // 持續 5 秒
         if (type === TYPES.SHRINK) player.size = player.baseSize * 0.6;
         else if (type === TYPES.ENLARGE) player.size = player.baseSize * 1.8;
     }
 
+    // 檢查升級條件
     function checkLevelUp() {
         if (score >= MAX_LEVEL * POINTS_PER_LEVEL) {
             winGame();
@@ -379,6 +435,7 @@
             sounds.levelup();
             levelElement.innerText = `關卡 ${currentLevel} / ${MAX_LEVEL}`;
             levelUpMsgTimer = 2000;
+            // 升級時自動補一格血
             if (player.lives < player.maxLives) {
                 player.lives++;
                 updateLivesUI();
@@ -390,7 +447,6 @@
         gameState = 'WIN';
         score = Math.max(score, MAX_LEVEL * POINTS_PER_LEVEL);
         scoreElement.innerText = `分數: ${score}`;
-        levelElement.innerText = `關卡 ${MAX_LEVEL} / ${MAX_LEVEL}`;
         cancelAnimationFrame(animationId);
         sounds.levelup();
         menuTitle.innerText = "🏆 巔峰破關！";
@@ -419,11 +475,14 @@
         }
     }
 
+    /** 遊戲逻辑更新 (每一幀執行) **/
     function update(dt) {
         if (gameState !== 'PLAYING') return;
 
+        // 更新無敵閃爍時間
         if (player.invincibleTimer > 0) player.invincibleTimer -= dt;
 
+        // 更新道具持續時間
         if (player.effectTimer > 0) {
             player.effectTimer -= dt;
             const sec = Math.ceil(player.effectTimer / 1000);
@@ -436,31 +495,31 @@
             }
         }
 
+        // 升級訊息計時
         if (levelUpMsgTimer > 0) levelUpMsgTimer -= dt;
 
+        // 玩家動畫幀累加
         player.animFrame += dt * 0.01;
 
-        player.x += (player.targetX - player.x) * player.speed;
-        player.y += (player.targetY - player.y) * player.speed;
-        player.x = Math.max(player.size/2, Math.min(canvas.width - player.size/2, player.x));
-        player.y = Math.max(player.size/2, Math.min(canvas.height - player.size/2, player.y));
-
+        // 生成敵人邏輯
         enemySpawnTimer += dt;
-        const spawnInterval = Math.max(180, 800 - (currentLevel * 60));
+        const spawnInterval = Math.max(180, 800 - (currentLevel * 60)); // 越後面的關卡出球越快
         if (enemySpawnTimer > spawnInterval) {
             spawnItem();
             enemySpawnTimer = 0;
-            score += 1;
+            score += 1; // 自然生存加分
             scoreElement.innerText = `分數: ${score}`;
             checkLevelUp();
         }
 
+        // 敵人位移與碰撞偵測
         for (let i = enemies.length - 1; i >= 0; i--) {
             const e = enemies[i];
-            const dtScale = Math.min(dt, 32) / 16.6;
+            const dtScale = Math.min(dt, 32) / 16.6; // 補償畫面更新速度不穩定的位移差
             e.y += e.speed * dtScale;
             e.rotation += 0.1 * dtScale;
 
+            // 圓形碰撞計算 (距離小於半徑相加)
             const dx = player.x - (e.x + e.size/2);
             const dy = player.y - (e.y + e.size/2);
             const distance = Math.sqrt(dx*dx + dy*dy);
@@ -470,14 +529,19 @@
                 enemies.splice(i, 1);
                 continue;
             }
+            // 移出螢幕則回收
             if (e.y > canvas.height + e.size + 100) enemies.splice(i, 1);
         }
     }
 
+    /** 繪製系統 **/
+
+    // 繪製藍色小人 (包含跑步動畫)
     function drawPlayer(x, y, size) {
         ctx.save();
         ctx.translate(x, y);
         if (player.invincibleTimer > 0) {
+            // 受傷後的閃爍效果
             ctx.globalAlpha = Math.floor(performance.now() / 100) % 2 === 0 ? 0.2 : 0.7;
         }
         const s = size / 40;
@@ -486,17 +550,21 @@
         ctx.fillStyle = '#38bdf8';
         ctx.lineWidth = 3 * s;
         ctx.lineCap = 'round';
+        // 畫頭
         ctx.beginPath();
         ctx.arc(0, -15 * s, 6 * s, 0, Math.PI * 2);
         ctx.fill();
+        // 畫身體
         ctx.beginPath();
         ctx.moveTo(0, -9 * s);
         ctx.lineTo(0, 5 * s);
         ctx.stroke();
+        // 畫手
         ctx.beginPath();
         ctx.moveTo(-10 * s, -5 * s + walk/2);
         ctx.lineTo(10 * s, -5 * s - walk/2);
         ctx.stroke();
+        // 畫腳 (交替擺動)
         ctx.beginPath();
         ctx.moveTo(0, 5 * s);
         ctx.lineTo(-7 * s - (walk > 0 ? walk : 0), 18 * s);
@@ -508,11 +576,13 @@
         ctx.restore();
     }
 
+    // 繪製火球或道具
     function drawDodgeball(e) {
         ctx.save();
         ctx.translate(e.x + e.size/2, e.y + e.size/2);
         const r = e.size / 2;
         if (e.type === TYPES.BALL) {
+            // 火球尾跡特效
             if (e.speed > 4) {
                 for (let i = 0; i < 6; i++) {
                     const alpha = (1 - i/6) * 0.6;
@@ -529,6 +599,7 @@
             }
             ctx.globalAlpha = 1.0;
             ctx.rotate(e.rotation);
+            // 畫球本體 (漸層色)
             const gradient = ctx.createRadialGradient(-r*0.3, -r*0.3, r*0.1, 0, 0, r);
             gradient.addColorStop(0, '#fdba74');
             gradient.addColorStop(0.6, '#f97316');
@@ -537,13 +608,16 @@
             ctx.beginPath();
             ctx.arc(0, 0, r, 0, Math.PI * 2);
             ctx.fill();
+            // 畫球的縫線
             ctx.strokeStyle = 'rgba(0,0,0,0.25)';
             ctx.lineWidth = 1.5;
             ctx.beginPath(); ctx.ellipse(0, 0, r, r*0.4, 0, 0, Math.PI * 2); ctx.stroke();
             ctx.beginPath(); ctx.ellipse(0, 0, r*0.4, r, 0, 0, Math.PI * 2); ctx.stroke();
+            // 反光點
             ctx.fillStyle = 'rgba(255,255,255,0.3)';
             ctx.beginPath(); ctx.arc(-r*0.35, -r*0.35, r*0.2, 0, Math.PI * 2); ctx.fill();
         } else {
+            // 繪製圓形道具圖示
             ctx.fillStyle = e.type.color;
             ctx.shadowBlur = 15;
             ctx.shadowColor = e.type.color;
@@ -560,8 +634,11 @@
         ctx.restore();
     }
 
+    // 渲染主畫面
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // 畫背景網格線 (科技感)
         ctx.strokeStyle = 'rgba(255,255,255,0.03)';
         ctx.lineWidth = 1;
         for(let x=0; x<canvas.width; x+=40) {
@@ -570,6 +647,8 @@
         for(let y=0; y<canvas.height; y+=40) {
             ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
         }
+
+        // 畫 Level Up 提示
         if (levelUpMsgTimer > 0) {
             ctx.save();
             ctx.fillStyle = `rgba(34, 197, 94, ${Math.min(1, levelUpMsgTimer/500)})`;
@@ -580,13 +659,15 @@
             ctx.fillText(`LEVEL UP: ${currentLevel}`, canvas.width/2, canvas.height/2);
             ctx.restore();
         }
+
         drawPlayer(player.x, player.y, player.size);
         enemies.forEach(e => drawDodgeball(e));
     }
 
+    // 主遊戲循環
     function gameLoop(time) {
         if (gameState !== 'PLAYING') return;
-        const dt = time - lastTime;
+        const dt = time - lastTime; // 計算距離上一幀過了多久
         lastTime = time;
         update(dt);
         draw();
