@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>躲避球大挑戰 - 音效增強版</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --player-color: #38bdf8;
+            --text-color: #f8fafc;
+            --danger-color: #f43f5e;
+            --accent-color: #22c55e;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: var(--bg-color);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            touch-action: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            max-width: 600px;
+            max-height: 1000px;
+            background-color: #1e293b;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            color: var(--text-color);
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            z-index: 5;
+        }
+
+        .stats-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            align-items: center;
+        }
+
+        #level-display {
+            background: rgba(34, 197, 94, 0.2);
+            padding: 2px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--accent-color);
+            color: var(--accent-color);
+        }
+
+        #lives-display {
+            color: var(--danger-color);
+            font-size: 20px;
+        }
+
+        #status-effects {
+            color: #fbbf24;
+            font-size: 14px;
+            margin-top: 5px;
+            font-weight: bold;
+        }
+
+        #menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: var(--text-color);
+            background: rgba(15, 23, 42, 0.95);
+            padding: 30px;
+            border-radius: 20px;
+            border: 2px solid var(--player-color);
+            width: 85%;
+            box-sizing: border-box;
+            z-index: 10;
+        }
+
+        button {
+            background-color: var(--player-color);
+            color: var(--bg-color);
+            border: none;
+            padding: 15px 40px;
+            font-size: 24px;
+            font-weight: bold;
+            border-radius: 50px;
+            margin-top: 20px;
+            cursor: pointer;
+            box-shadow: 0 4px 0 #0369a1;
+            transition: transform 0.1s;
+        }
+
+        button:active {
+            transform: translateY(2px);
+            box-shadow: 0 2px 0 #0369a1;
+        }
+
+        h1 { margin: 0 0 10px 0; font-size: 28px; color: var(--player-color); }
+        #menu-desc { margin: 10px 0; font-size: 16px; line-height: 1.5; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui-layer">
+        <div class="stats-row">
+            <div id="level-display">關卡 1 / 10</div>
+            <div id="lives-display">❤️❤️❤️❤️❤️</div>
+        </div>
+        <div class="stats-row" style="margin-top: 5px;">
+            <div id="score">分數: 0</div>
+            <div id="highScore">最高: 0</div>
+        </div>
+        <div id="status-effects"></div>
+    </div>
+
+    <div id="menu">
+        <h1 id="menu-title">躲避球大挑戰</h1>
+        <p id="menu-desc">控制藍色小人，躲避飛來的火焰球！<br>生命全滿時愛心加 100 分！</p>
+        <button id="start-btn">開始挑戰</button>
+    </div>
+</div>
+
+<script>
+    /** 音效引擎系統 **/
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    function playTone(freq, type, duration, volume = 0.1) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+    }
+
+    const sounds = {
+        hit: () => {
+            playTone(150, 'sawtooth', 0.3, 0.1);
+            playTone(100, 'sine', 0.2, 0.2);
+        },
+        collect: () => {
+            playTone(523.25, 'sine', 0.1, 0.1); // C5
+            setTimeout(() => playTone(659.25, 'sine', 0.1, 0.1), 50); // E5
+            setTimeout(() => playTone(783.99, 'sine', 0.2, 0.1), 100); // G5
+        },
+        levelup: () => {
+            playTone(440, 'square', 0.1, 0.05);
+            setTimeout(() => playTone(554.37, 'square', 0.1, 0.05), 100);
+            setTimeout(() => playTone(659.25, 'square', 0.3, 0.05), 200);
+        },
+        gameover: () => {
+            playTone(300, 'sawtooth', 0.5, 0.1);
+            playTone(200, 'sawtooth', 0.5, 0.1);
+        }
+    };
+
+    // 簡單的 BGM 循環
+    let bgmInterval;
+    function startBGM() {
+        if (bgmInterval) clearInterval(bgmInterval);
+        const notes = [261.63, 293.66, 329.63, 349.23, 392.00, 349.23, 329.63, 293.66];
+        let i = 0;
+        bgmInterval = setInterval(() => {
+            if (gameState === 'PLAYING') {
+                playTone(notes[i], 'triangle', 0.4, 0.03);
+                i = (i + 1) % notes.length;
+            }
+        }, 500);
+    }
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreElement = document.getElementById('score');
+    const highScoreElement = document.getElementById('highScore');
+    const livesElement = document.getElementById('lives-display');
+    const levelElement = document.getElementById('level-display');
+    const statusElement = document.getElementById('status-effects');
+    const menu = document.getElementById('menu');
+    const menuTitle = document.getElementById('menu-title');
+    const menuDesc = document.getElementById('menu-desc');
+    const startBtn = document.getElementById('start-btn');
+
+    let gameState = 'START';
+    let score = 0;
+    let currentLevel = 1;
+    const MAX_LEVEL = 10;
+    const POINTS_PER_LEVEL = 100;
+    let highScore = localStorage.getItem('dodgeProScore') || 0;
+    let lastTime = 0;
+    let animationId;
+    let levelUpMsgTimer = 0;
+
+    const TYPES = {
+        BALL: { color: '#f97316', label: '' },
+        HEART: { color: '#ec4899', label: '❤️' },
+        SHRINK: { color: '#22c55e', label: '✨' },
+        ENLARGE: { color: '#eab308', label: '⚠️' }
+    };
+
+    const player = {
+        x: 0,
+        y: 0,
+        baseSize: 40,
+        size: 40,
+        targetX: 0,
+        targetY: 0,
+        speed: 0.22,
+        lives: 5,
+        maxLives: 5,
+        invincibleTimer: 0,
+        effectTimer: 0,
+        currentEffect: null,
+        animFrame: 0
+    };
+
+    let enemies = [];
+    let enemySpawnTimer = 0;
+
+    function resize() {
+        const container = document.getElementById('game-container');
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+        if (gameState !== 'PLAYING') {
+            player.x = canvas.width / 2;
+            player.y = canvas.height * 0.8;
+            player.targetX = player.x;
+            player.targetY = player.y;
+        }
+        draw();
+    }
+
+    window.addEventListener('resize', resize);
+    highScoreElement.innerText = `最高: ${highScore}`;
+
+    function updateLivesUI() {
+        let hearts = '';
+        for(let i=0; i<player.maxLives; i++) {
+            hearts += i < player.lives ? '❤️' : '🖤';
+        }
+        livesElement.innerText = hearts;
+    }
+
+    function handleInput(e) {
+        if (gameState !== 'PLAYING') return;
+        const t = e.touches ? e.touches[0] : e;
+        const rect = canvas.getBoundingClientRect();
+        player.targetX = t.clientX - rect.left;
+        player.targetY = t.clientY - rect.top;
+    }
+
+    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(e); }, {passive: false});
+    canvas.addEventListener('touchmove', (e) => { e.preventDefault(); handleInput(e); }, {passive: false});
+    canvas.addEventListener('mousemove', handleInput);
+
+    startBtn.addEventListener('click', () => {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        resetGame();
+        gameState = 'PLAYING';
+        menu.style.display = 'none';
+        lastTime = performance.now();
+        startBGM();
+        if (animationId) cancelAnimationFrame(animationId);
+        requestAnimationFrame(gameLoop);
+    });
+
+    function resetGame() {
+        score = 0;
+        currentLevel = 1;
+        enemies = [];
+        enemySpawnTimer = 0;
+        levelUpMsgTimer = 0;
+        player.lives = 5;
+        player.invincibleTimer = 0;
+        player.size = player.baseSize;
+        player.currentEffect = null;
+        player.effectTimer = 0;
+        scoreElement.innerText = `分數: 0`;
+        levelElement.innerText = `關卡 1 / ${MAX_LEVEL}`;
+        statusElement.innerText = '';
+        updateLivesUI();
+        player.x = canvas.width / 2;
+        player.y = canvas.height * 0.8;
+        player.targetX = player.x;
+        player.targetY = player.y;
+    }
+
+    function spawnItem() {
+        const rand = Math.random();
+        let type = TYPES.BALL;
+        const heartChance = 0.08 + (currentLevel * 0.015);
+        const shrinkChance = 0.04;
+        const enlargeChance = 0.03;
+
+        if (rand < heartChance) type = TYPES.HEART;
+        else if (rand < heartChance + shrinkChance) type = TYPES.SHRINK;
+        else if (rand < heartChance + shrinkChance + enlargeChance) type = TYPES.ENLARGE;
+
+        const size = 28 + Math.random() * 12;
+        const baseSpeed = 3.5 + (currentLevel * 0.8);
+        enemies.push({
+            x: Math.random() * (canvas.width - size),
+            y: -size,
+            size: size,
+            speed: baseSpeed + Math.random() * 2,
+            type: type,
+            rotation: 0
+        });
+    }
+
+    function applyEffect(type) {
+        if (type === TYPES.BALL) {
+            if (player.invincibleTimer <= 0) {
+                player.lives--;
+                sounds.hit();
+                updateLivesUI();
+                if (player.lives <= 0) gameOver();
+                else player.invincibleTimer = 1500;
+            }
+            return;
+        }
+
+        sounds.collect();
+        if (type === TYPES.HEART) {
+            if (player.lives < player.maxLives) {
+                player.lives++;
+                updateLivesUI();
+            } else {
+                score += 100; // 生命全滿改為加 100
+                scoreElement.innerText = `分數: ${score}`;
+                checkLevelUp();
+            }
+            return;
+        }
+
+        player.currentEffect = type;
+        player.effectTimer = 5000;
+        if (type === TYPES.SHRINK) player.size = player.baseSize * 0.6;
+        else if (type === TYPES.ENLARGE) player.size = player.baseSize * 1.8;
+    }
+
+    function checkLevelUp() {
+        if (score >= MAX_LEVEL * POINTS_PER_LEVEL) {
+            winGame();
+            return;
+        }
+        const nextLevel = Math.min(MAX_LEVEL, Math.floor(score / POINTS_PER_LEVEL) + 1);
+        if (nextLevel > currentLevel) {
+            currentLevel = nextLevel;
+            sounds.levelup();
+            levelElement.innerText = `關卡 ${currentLevel} / ${MAX_LEVEL}`;
+            levelUpMsgTimer = 2000;
+            if (player.lives < player.maxLives) {
+                player.lives++;
+                updateLivesUI();
+            }
+        }
+    }
+
+    function winGame() {
+        gameState = 'WIN';
+        score = Math.max(score, MAX_LEVEL * POINTS_PER_LEVEL);
+        scoreElement.innerText = `分數: ${score}`;
+        levelElement.innerText = `關卡 ${MAX_LEVEL} / ${MAX_LEVEL}`;
+        cancelAnimationFrame(animationId);
+        sounds.levelup();
+        menuTitle.innerText = "🏆 巔峰破關！";
+        menuDesc.innerHTML = `你征服了所有火焰躲避球！<br>最終得分: <span style="color:#22c55e; font-size: 24px;">${score}</span>`;
+        startBtn.innerText = "再次挑戰";
+        menu.style.display = 'block';
+        updateHighScore();
+    }
+
+    function gameOver() {
+        gameState = 'GAMEOVER';
+        cancelAnimationFrame(animationId);
+        sounds.gameover();
+        menuTitle.innerText = "體力耗盡！";
+        menuDesc.innerHTML = `你在第 ${currentLevel} 關被球擊中了...<br>得分: <span style="color:#f43f5e; font-size: 24px;">${score}</span>`;
+        startBtn.innerText = "重啟挑戰";
+        menu.style.display = 'block';
+        updateHighScore();
+    }
+
+    function updateHighScore() {
+        if (score > highScore) {
+            highScore = score;
+            localStorage.setItem('dodgeProScore', highScore);
+            highScoreElement.innerText = `最高: ${highScore}`;
+        }
+    }
+
+    function update(dt) {
+        if (gameState !== 'PLAYING') return;
+
+        if (player.invincibleTimer > 0) player.invincibleTimer -= dt;
+
+        if (player.effectTimer > 0) {
+            player.effectTimer -= dt;
+            const sec = Math.ceil(player.effectTimer / 1000);
+            const label = player.currentEffect === TYPES.SHRINK ? "縮小" : "放大";
+            statusElement.innerText = `⚡ ${label}中 (${sec}s)`;
+            if (player.effectTimer <= 0) {
+                player.size = player.baseSize;
+                player.currentEffect = null;
+                statusElement.innerText = "";
+            }
+        }
+
+        if (levelUpMsgTimer > 0) levelUpMsgTimer -= dt;
+
+        player.animFrame += dt * 0.01;
+
+        player.x += (player.targetX - player.x) * player.speed;
+        player.y += (player.targetY - player.y) * player.speed;
+        player.x = Math.max(player.size/2, Math.min(canvas.width - player.size/2, player.x));
+        player.y = Math.max(player.size/2, Math.min(canvas.height - player.size/2, player.y));
+
+        enemySpawnTimer += dt;
+        const spawnInterval = Math.max(180, 800 - (currentLevel * 60));
+        if (enemySpawnTimer > spawnInterval) {
+            spawnItem();
+            enemySpawnTimer = 0;
+            score += 1;
+            scoreElement.innerText = `分數: ${score}`;
+            checkLevelUp();
+        }
+
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            const e = enemies[i];
+            const dtScale = Math.min(dt, 32) / 16.6;
+            e.y += e.speed * dtScale;
+            e.rotation += 0.1 * dtScale;
+
+            const dx = player.x - (e.x + e.size/2);
+            const dy = player.y - (e.y + e.size/2);
+            const distance = Math.sqrt(dx*dx + dy*dy);
+            
+            if (distance < (player.size/2 + e.size/2) * 0.8) {
+                applyEffect(e.type);
+                enemies.splice(i, 1);
+                continue;
+            }
+            if (e.y > canvas.height + e.size + 100) enemies.splice(i, 1);
+        }
+    }
+
+    function drawPlayer(x, y, size) {
+        ctx.save();
+        ctx.translate(x, y);
+        if (player.invincibleTimer > 0) {
+            ctx.globalAlpha = Math.floor(performance.now() / 100) % 2 === 0 ? 0.2 : 0.7;
+        }
+        const s = size / 40;
+        const walk = Math.sin(player.animFrame) * 10 * s;
+        ctx.strokeStyle = '#38bdf8';
+        ctx.fillStyle = '#38bdf8';
+        ctx.lineWidth = 3 * s;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(0, -15 * s, 6 * s, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(0, -9 * s);
+        ctx.lineTo(0, 5 * s);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-10 * s, -5 * s + walk/2);
+        ctx.lineTo(10 * s, -5 * s - walk/2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, 5 * s);
+        ctx.lineTo(-7 * s - (walk > 0 ? walk : 0), 18 * s);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, 5 * s);
+        ctx.lineTo(7 * s + (walk < 0 ? -walk : 0), 18 * s);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    function drawDodgeball(e) {
+        ctx.save();
+        ctx.translate(e.x + e.size/2, e.y + e.size/2);
+        const r = e.size / 2;
+        if (e.type === TYPES.BALL) {
+            if (e.speed > 4) {
+                for (let i = 0; i < 6; i++) {
+                    const alpha = (1 - i/6) * 0.6;
+                    const pSize = r * (0.8 - i*0.1);
+                    const offset = i * 8;
+                    const shake = (Math.random() - 0.5) * 10;
+                    const colors = ['#f43f5e', '#f59e0b', '#fbbf24', '#ffffff'];
+                    ctx.fillStyle = colors[Math.floor(i/1.6)] || colors[0];
+                    ctx.globalAlpha = alpha;
+                    ctx.beginPath();
+                    ctx.arc(shake, -r - offset, pSize, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            ctx.globalAlpha = 1.0;
+            ctx.rotate(e.rotation);
+            const gradient = ctx.createRadialGradient(-r*0.3, -r*0.3, r*0.1, 0, 0, r);
+            gradient.addColorStop(0, '#fdba74');
+            gradient.addColorStop(0.6, '#f97316');
+            gradient.addColorStop(1, '#9a3412');
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(0, 0, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.ellipse(0, 0, r, r*0.4, 0, 0, Math.PI * 2); ctx.stroke();
+            ctx.beginPath(); ctx.ellipse(0, 0, r*0.4, r, 0, 0, Math.PI * 2); ctx.stroke();
+            ctx.fillStyle = 'rgba(255,255,255,0.3)';
+            ctx.beginPath(); ctx.arc(-r*0.35, -r*0.35, r*0.2, 0, Math.PI * 2); ctx.fill();
+        } else {
+            ctx.fillStyle = e.type.color;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = e.type.color;
+            ctx.beginPath();
+            ctx.arc(0, 0, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = "white";
+            ctx.font = `bold ${e.size * 0.6}px Arial`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(e.type.label, 0, 0);
+        }
+        ctx.restore();
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+        ctx.lineWidth = 1;
+        for(let x=0; x<canvas.width; x+=40) {
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+        }
+        for(let y=0; y<canvas.height; y+=40) {
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+        }
+        if (levelUpMsgTimer > 0) {
+            ctx.save();
+            ctx.fillStyle = `rgba(34, 197, 94, ${Math.min(1, levelUpMsgTimer/500)})`;
+            ctx.font = "bold 40px Arial";
+            ctx.textAlign = "center";
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = "#22c55e";
+            ctx.fillText(`LEVEL UP: ${currentLevel}`, canvas.width/2, canvas.height/2);
+            ctx.restore();
+        }
+        drawPlayer(player.x, player.y, player.size);
+        enemies.forEach(e => drawDodgeball(e));
+    }
+
+    function gameLoop(time) {
+        if (gameState !== 'PLAYING') return;
+        const dt = time - lastTime;
+        lastTime = time;
+        update(dt);
+        draw();
+        animationId = requestAnimationFrame(gameLoop);
+    }
+
+    resize();
+</script>
+
+</body>
+</html>
