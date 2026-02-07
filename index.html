@@ -76,6 +76,34 @@
             font-size: 20px;
         }
 
+        /* 音量控制 UI */
+        #volume-control {
+            position: absolute;
+            top: 100px;
+            right: 20px;
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            background: rgba(15, 23, 42, 0.6);
+            padding: 8px 12px;
+            border-radius: 20px;
+            gap: 10px;
+            backdrop-filter: blur(4px);
+            opacity: 0.6;
+            transition: opacity 0.3s;
+            z-index: 15;
+        }
+        
+        #volume-control:hover {
+            opacity: 1;
+        }
+
+        #volume-slider {
+            width: 80px;
+            cursor: pointer;
+            accent-color: var(--player-color);
+        }
+
         #menu {
             position: absolute;
             top: 50%;
@@ -131,6 +159,12 @@
         </div>
     </div>
 
+    <!-- 音量調節元件 -->
+    <div id="volume-control">
+        <span id="volume-icon">🔊</span>
+        <input type="range" id="volume-slider" min="0" max="1" step="0.1" value="0.5">
+    </div>
+
     <div id="menu">
         <h1 id="menu-title">特性路徑大挑戰</h1>
         <p id="menu-desc">不同顏色的球有不同的飛行規則！<br>子彈直線衝刺、幽靈飄忽不定...</p>
@@ -141,14 +175,28 @@
 <script>
     // --- 音效引擎 ---
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let globalVolume = 0.5; // 預設音量
+
+    // 監聽音量滑動條
+    const volumeSlider = document.getElementById('volume-slider');
+    const volumeIcon = document.getElementById('volume-icon');
+    volumeSlider.addEventListener('input', (e) => {
+        globalVolume = parseFloat(e.target.value);
+        volumeIcon.innerText = globalVolume === 0 ? "🔇" : globalVolume < 0.5 ? "🔉" : "🔊";
+    });
+
     function playTone(freq, type, duration, volume = 0.1) {
         if (audioCtx.state === 'suspended') audioCtx.resume();
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = type;
         osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+        
+        // 最終音量 = 基礎音量 * 全域設定
+        const finalVolume = volume * globalVolume;
+        gain.gain.setValueAtTime(finalVolume, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+        
         osc.connect(gain);
         gain.connect(audioCtx.destination);
         osc.start();
@@ -156,10 +204,16 @@
     }
 
     const sounds = {
-        hit: () => playTone(150, 'sawtooth', 0.3, 0.1),
-        collect: () => { playTone(523, 'sine', 0.1, 0.1); setTimeout(()=>playTone(783, 'sine', 0.2, 0.1), 100); },
-        levelup: () => { playTone(440, 'square', 0.1, 0.05); setTimeout(()=>playTone(659, 'square', 0.3, 0.05), 200); },
-        gameover: () => playTone(200, 'sawtooth', 0.5, 0.1)
+        hit: () => playTone(150, 'sawtooth', 0.3, 1.0), // 提高基準值以便調節
+        collect: () => { 
+            playTone(523, 'sine', 0.1, 0.8); 
+            setTimeout(()=>playTone(783, 'sine', 0.2, 0.8), 100); 
+        },
+        levelup: () => { 
+            playTone(440, 'square', 0.1, 0.5); 
+            setTimeout(()=>playTone(659, 'square', 0.3, 0.5), 200); 
+        },
+        gameover: () => playTone(200, 'sawtooth', 0.5, 1.0)
     };
 
     // --- 遊戲常數與狀態 ---
@@ -215,6 +269,9 @@
     // --- 事件監聽 ---
     function handleStart(e) {
         if (gameState !== 'PLAYING') return;
+        // 如果點擊的是音量控制區，不觸發玩家移動
+        if (e.target.closest('#volume-control')) return;
+        
         const t = e.touches ? e.touches[0] : e;
         lastTouchX = t.clientX; lastTouchY = t.clientY;
         isTouching = true;
@@ -416,36 +473,29 @@
             const now = performance.now();
 
             if (e.type === TYPES.BULLET) {
-                // --- 子彈視覺更新：尖頭長形 + 火焰 ---
-                ctx.rotate(Math.PI); // 向下飛
-                // 火焰
+                ctx.rotate(Math.PI); 
                 const fireY = r * 1.5 + Math.random() * 10;
                 const gradFire = ctx.createLinearGradient(0, 0, 0, fireY);
                 gradFire.addColorStop(0, "#f43f5e");
                 gradFire.addColorStop(1, "transparent");
                 ctx.fillStyle = gradFire;
                 ctx.beginPath(); ctx.moveTo(-r*0.6, r); ctx.lineTo(0, fireY); ctx.lineTo(r*0.6, r); ctx.fill();
-                // 彈體 (梭型)
                 ctx.fillStyle = "#f43f5e";
                 ctx.beginPath();
-                ctx.moveTo(0, -r * 1.8); // 尖頭
-                ctx.quadraticCurveTo(r, -r, r, r); // 右側
-                ctx.lineTo(-r, r); // 底部
-                ctx.quadraticCurveTo(-r, -r, 0, -r * 1.8); // 左側
+                ctx.moveTo(0, -r * 1.8);
+                ctx.quadraticCurveTo(r, -r, r, r);
+                ctx.lineTo(-r, r);
+                ctx.quadraticCurveTo(-r, -r, 0, -r * 1.8);
                 ctx.fill();
-                // 高光
                 ctx.fillStyle = "rgba(255,255,255,0.4)";
                 ctx.beginPath(); ctx.ellipse(-r*0.3, -r*0.5, r*0.2, r*0.5, 0, 0, Math.PI*2); ctx.fill();
             } else if (e.type === TYPES.GHOST) {
-                // --- 幽靈視覺更新：半透明裙擺 + 眼睛 ---
                 const alpha = 0.3 + Math.abs(Math.sin(now / 200)) * 0.5;
                 ctx.globalAlpha = alpha;
                 ctx.fillStyle = "#cbd5e1";
-                // 身體
                 ctx.beginPath();
-                ctx.arc(0, -r*0.2, r, Math.PI, 0); // 頭部圓弧
+                ctx.arc(0, -r*0.2, r, Math.PI, 0);
                 ctx.lineTo(r, r);
-                // 裙擺波動
                 for(let j=0; j<3; j++) {
                     const waveX = r - (j * (r*0.66)) - r*0.33;
                     const waveY = r + Math.sin(now/100 + j)*5;
@@ -453,7 +503,6 @@
                 }
                 ctx.lineTo(-r, r);
                 ctx.closePath(); ctx.fill();
-                // 眼睛
                 ctx.globalAlpha = 1;
                 ctx.fillStyle = "#1e293b";
                 ctx.beginPath(); ctx.arc(-r*0.4, -r*0.2, r*0.15, 0, Math.PI*2); ctx.fill();
@@ -480,7 +529,6 @@
                 ctx.fillStyle = "white"; ctx.font = `bold ${r}px Arial`; ctx.textAlign="center"; ctx.textBaseline="middle";
                 ctx.fillText(e.type.label, 0, 2);
             } else {
-                // 一般火球
                 const grad = ctx.createRadialGradient(-r*0.3, -r*0.3, r*0.1, 0, 0, r);
                 grad.addColorStop(0, "#ffedd5");
                 grad.addColorStop(0.4, e.type.color);
@@ -491,7 +539,6 @@
             ctx.restore();
         });
 
-        // 升級提示
         if (levelUpMsgTimer > 0) {
             ctx.save();
             ctx.fillStyle = "rgba(34, 197, 94, "+ Math.min(1, levelUpMsgTimer/500) +")";
